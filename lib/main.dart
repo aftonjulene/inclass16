@@ -175,24 +175,118 @@ class _SignInRegisterScreenState extends State<SignInRegisterScreen> {
   }
 }
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  final _auth = AuthService();
+  final _currentPassword = TextEditingController();
+  final _newPassword = TextEditingController();
+  String? _feedback;
+
+  @override
+  void dispose() {
+    _currentPassword.dispose();
+    _newPassword.dispose();
+    super.dispose();
+  }
+
+  Future<void> _doChangePassword() async {
+    setState(() => _feedback = null);
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      setState(() => _feedback = 'Not signed in');
+      return;
+    }
+    try {
+      final email = user.email;
+      if (email == null ||
+          _currentPassword.text.isEmpty ||
+          _newPassword.text.isEmpty) {
+        setState(() => _feedback = 'Enter current and new password');
+        return;
+      }
+      final cred = EmailAuthProvider.credential(
+        email: email,
+        password: _currentPassword.text,
+      );
+      await user.reauthenticateWithCredential(cred);
+      await user.updatePassword(_newPassword.text);
+      await FirebaseAuth.instance.signOut();
+      setState(() => _feedback = 'Password updated. Sign in again.');
+      _currentPassword.clear();
+      _newPassword.clear();
+    } on FirebaseAuthException catch (e) {
+      setState(() => _feedback = e.message ?? e.code);
+    } catch (e) {
+      setState(() => _feedback = e.toString());
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser!;
+    final user = FirebaseAuth.instance.currentUser;
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
-      body: Center(
+      appBar: AppBar(
+        title: const Text('Profile'),
+        actions: [
+          IconButton(
+            onPressed: () async {
+              await _auth.signOut();
+            },
+            icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Signed in as: ${user.email}'),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => AuthService().signOut(),
-              child: const Text('Sign Out'),
+            Text(
+              'Signed in as:',
+              style: Theme.of(context).textTheme.labelMedium,
             ),
+            const SizedBox(height: 4),
+            Text(
+              user?.email ?? '(no email)',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 24),
+            TextField(
+              controller: _currentPassword,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Current password'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _newPassword,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'New password (>= 6 chars)',
+              ),
+            ),
+            const SizedBox(height: 8),
+            FilledButton(
+              onPressed: _doChangePassword,
+              child: const Text('Change Password'),
+            ),
+            if (_feedback != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  _feedback!,
+                  style: TextStyle(
+                    color: _feedback == 'Password updated. Sign in again.'
+                        ? Colors.green
+                        : Colors.red,
+                  ),
+                ),
+              ),
           ],
         ),
       ),
